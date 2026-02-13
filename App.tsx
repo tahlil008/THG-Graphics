@@ -25,6 +25,9 @@ import OrderPage from './pages/OrderPage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 
+// Create a broadcast channel for cross-tab communication
+const syncChannel = new BroadcastChannel('designhub_sync');
+
 const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -61,7 +64,8 @@ const App: React.FC = () => {
 
     if (savedOrders) {
       try {
-        setOrders(JSON.parse(savedOrders));
+        const parsedOrders = JSON.parse(savedOrders);
+        setOrders(parsedOrders);
       } catch (e) {
         console.error("Failed to parse orders", e);
       }
@@ -72,7 +76,7 @@ const App: React.FC = () => {
   useEffect(() => {
     loadData();
 
-    // Listen for changes in other tabs/windows
+    // Listen for storage events (same device, different tabs)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'designhub_orders' || e.key === 'designhub_projects') {
         loadData();
@@ -82,8 +86,20 @@ const App: React.FC = () => {
       }
     };
 
+    // Listen for broadcast channel messages
+    const handleBroadcastMessage = (event: MessageEvent) => {
+      if (event.data === 'update_orders' || event.data === 'update_projects') {
+        loadData();
+      }
+    };
+
     window.addEventListener('storage', handleStorageChange);
-    return () => window.removeEventListener('storage', handleStorageChange);
+    syncChannel.addEventListener('message', handleBroadcastMessage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      syncChannel.removeEventListener('message', handleBroadcastMessage);
+    };
   }, []);
 
   const handleLogout = () => {

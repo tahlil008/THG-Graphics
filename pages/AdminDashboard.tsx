@@ -20,7 +20,8 @@ import {
   ArrowLeft,
   AlertCircle,
   LogOut,
-  Sparkles
+  Sparkles,
+  RefreshCcw
 } from 'lucide-react';
 import { Project, Order, Category, SubCategory, CATEGORIES } from '../types';
 
@@ -32,30 +33,51 @@ interface AdminDashboardProps {
   handleLogout: () => void;
 }
 
+const syncChannel = new BroadcastChannel('designhub_sync');
+
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, orders, setOrders, handleLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   const prevOrdersCount = useRef(orders.length);
 
   const pendingCount = orders.filter(o => o.status === 'Pending').length;
 
+  // Manual sync function
+  const handleSync = () => {
+    setIsSyncing(true);
+    const savedOrders = localStorage.getItem('designhub_orders');
+    if (savedOrders) {
+      try {
+        const parsed = JSON.parse(savedOrders);
+        setOrders(parsed);
+      } catch (e) {}
+    }
+    setTimeout(() => setIsSyncing(false), 1000);
+  };
+
   useEffect(() => {
     // Detect if a new order was added
     if (orders.length > prevOrdersCount.current) {
-      const latestOrder = orders[0]; // New orders are prepended in OrderPage
-      setNewOrderAlert(latestOrder);
+      // Find the order that wasn't in the previous count
+      // In our app, new orders are usually prepended
+      const latestOrder = orders[0]; 
       
-      // Play a subtle notification sound if possible
-      try {
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-        audio.volume = 0.3;
-        audio.play();
-      } catch (e) {}
+      if (latestOrder) {
+        setNewOrderAlert(latestOrder);
+        
+        // Notification sound
+        try {
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+          audio.volume = 0.4;
+          audio.play().catch(() => {});
+        } catch (e) {}
 
-      // Auto-hide alert after 5 seconds
-      const timer = setTimeout(() => setNewOrderAlert(null), 8000);
-      return () => clearTimeout(timer);
+        // Auto-hide alert
+        const timer = setTimeout(() => setNewOrderAlert(null), 10000);
+        return () => clearTimeout(timer);
+      }
     }
     prevOrdersCount.current = orders.length;
   }, [orders]);
@@ -65,12 +87,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
       {/* Real-time Notification Toast */}
       {newOrderAlert && (
         <div className="fixed top-6 right-6 z-[200] animate-in slide-in-from-right-10 fade-in duration-500">
-          <div className="bg-slate-950 text-white p-6 rounded-[2rem] shadow-2xl border border-white/10 flex items-center gap-5 max-w-sm">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shrink-0 animate-bounce">
+          <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl border border-indigo-500/30 flex items-center gap-5 max-w-sm">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shrink-0 animate-pulse">
               <Bell className="w-6 h-6 text-white" />
             </div>
             <div className="flex-grow">
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1">New Inquiry Arrived!</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1">Live Order Alert</p>
               <p className="font-bold text-sm truncate">{newOrderAlert.clientName}</p>
               <p className="text-[10px] text-slate-400 font-medium truncate">{newOrderAlert.projectType}</p>
             </div>
@@ -114,7 +136,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
             </div>
             {pendingCount > 0 && <span className="bg-red-500 text-white px-2 py-0.5 rounded text-[9px] animate-pulse">{pendingCount}</span>}
           </Link>
+          
           <div className="pt-6 border-t border-slate-50 mt-6 space-y-2">
+            <button 
+              onClick={handleSync} 
+              className={`w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${isSyncing ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:bg-slate-50'}`}
+            >
+              <RefreshCcw className={`w-5 h-5 mr-4 ${isSyncing ? 'animate-spin' : ''}`} /> 
+              {isSyncing ? 'Syncing...' : 'Sync Data'}
+            </button>
             <button onClick={() => navigate('/')} className="w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest text-slate-400 hover:bg-slate-100 transition-all">
               <ArrowLeft className="w-5 h-5 mr-4" /> Public View
             </button>
@@ -204,6 +234,7 @@ const ManageProjects = ({ projects, setProjects }: { projects: Project[], setPro
           : [newProject, ...prev];
         
         localStorage.setItem('designhub_projects', JSON.stringify(updated));
+        syncChannel.postMessage('update_projects');
         return updated;
       });
       resetForm();
@@ -218,6 +249,7 @@ const ManageProjects = ({ projects, setProjects }: { projects: Project[], setPro
       const updated = projects.filter(p => p.id !== id);
       setProjects(updated);
       localStorage.setItem('designhub_projects', JSON.stringify(updated));
+      syncChannel.postMessage('update_projects');
     }
   };
 
@@ -415,6 +447,7 @@ const ManageOrders = ({ orders, setOrders }: { orders: Order[], setOrders: React
     const updated = orders.map(o => o.id === id ? { ...o, status } : o);
     setOrders(updated);
     localStorage.setItem('designhub_orders', JSON.stringify(updated));
+    syncChannel.postMessage('update_orders');
     if (selectedOrder?.id === id) setSelectedOrder({ ...selectedOrder, status });
   };
 
@@ -423,6 +456,7 @@ const ManageOrders = ({ orders, setOrders }: { orders: Order[], setOrders: React
       const updated = orders.filter(o => o.id !== id);
       setOrders(updated);
       localStorage.setItem('designhub_orders', JSON.stringify(updated));
+      syncChannel.postMessage('update_orders');
       setSelectedOrder(null);
     }
   };

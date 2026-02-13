@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShoppingBag, CheckCircle, Upload, MessageCircle, Mail, User, Info, AlertCircle, ArrowLeft } from 'lucide-react';
@@ -7,6 +8,8 @@ interface OrderPageProps {
   setOrders: React.Dispatch<React.SetStateAction<Order[]>>;
   orders: Order[];
 }
+
+const syncChannel = new BroadcastChannel('designhub_sync');
 
 const OrderPage: React.FC<OrderPageProps> = ({ setOrders, orders }) => {
   const navigate = useNavigate();
@@ -47,11 +50,23 @@ const OrderPage: React.FC<OrderPageProps> = ({ setOrders, orders }) => {
         fileUrl: file ? URL.createObjectURL(file) : undefined,
       };
 
-      setOrders(prev => {
-        const updated = [newOrder, ...prev];
-        localStorage.setItem('designhub_orders', JSON.stringify(updated));
-        return updated;
-      });
+      // Save to localStorage
+      const existingOrdersStr = localStorage.getItem('designhub_orders');
+      let currentOrders: Order[] = [];
+      if (existingOrdersStr) {
+        try {
+          currentOrders = JSON.parse(existingOrdersStr);
+        } catch (e) {}
+      }
+      
+      const updatedOrders = [newOrder, ...currentOrders];
+      localStorage.setItem('designhub_orders', JSON.stringify(updatedOrders));
+      
+      // Update state
+      setOrders(updatedOrders);
+      
+      // Broadcast to other tabs
+      syncChannel.postMessage('update_orders');
       
       setIsLoading(false);
       setIsSubmitted(true);
