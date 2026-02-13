@@ -1,0 +1,7 @@
+{
+  "name": "DesignHub Pro - Creative Studio",
+  "description": "A high-end professional graphics design agency portfolio and client ordering system with full admin control.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
