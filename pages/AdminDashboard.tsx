@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -19,7 +19,8 @@ import {
   Bell,
   ArrowLeft,
   AlertCircle,
-  LogOut
+  LogOut,
+  Sparkles
 } from 'lucide-react';
 import { Project, Order, Category, SubCategory, CATEGORIES } from '../types';
 
@@ -34,10 +35,52 @@ interface AdminDashboardProps {
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, orders, setOrders, handleLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
+  const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
+  const prevOrdersCount = useRef(orders.length);
+
   const pendingCount = orders.filter(o => o.status === 'Pending').length;
 
+  useEffect(() => {
+    // Detect if a new order was added
+    if (orders.length > prevOrdersCount.current) {
+      const latestOrder = orders[0]; // New orders are prepended in OrderPage
+      setNewOrderAlert(latestOrder);
+      
+      // Play a subtle notification sound if possible
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.volume = 0.3;
+        audio.play();
+      } catch (e) {}
+
+      // Auto-hide alert after 5 seconds
+      const timer = setTimeout(() => setNewOrderAlert(null), 8000);
+      return () => clearTimeout(timer);
+    }
+    prevOrdersCount.current = orders.length;
+  }, [orders]);
+
   return (
-    <div className="flex flex-col lg:flex-row min-h-screen bg-[#F8FAFC]">
+    <div className="flex flex-col lg:flex-row min-h-screen bg-[#F8FAFC] relative">
+      {/* Real-time Notification Toast */}
+      {newOrderAlert && (
+        <div className="fixed top-6 right-6 z-[200] animate-in slide-in-from-right-10 fade-in duration-500">
+          <div className="bg-slate-950 text-white p-6 rounded-[2rem] shadow-2xl border border-white/10 flex items-center gap-5 max-w-sm">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shrink-0 animate-bounce">
+              <Bell className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-grow">
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1">New Inquiry Arrived!</p>
+              <p className="font-bold text-sm truncate">{newOrderAlert.clientName}</p>
+              <p className="text-[10px] text-slate-400 font-medium truncate">{newOrderAlert.projectType}</p>
+            </div>
+            <button onClick={() => setNewOrderAlert(null)} className="p-2 hover:bg-white/10 rounded-full transition-all">
+              <X className="w-4 h-4 text-slate-500" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <aside className="w-full lg:w-80 bg-white border-r border-slate-200 flex flex-col pt-16 lg:pt-0 z-40 shadow-sm lg:sticky lg:top-0 h-auto lg:h-screen transition-all duration-300">
         <div className="hidden lg:flex p-10 items-center border-b border-slate-50 mt-12 mb-8">
           <div className="w-14 h-14 bg-indigo-600 rounded-[1.25rem] flex items-center justify-center mr-5 shadow-2xl">
@@ -69,7 +112,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
             <div className="flex items-center">
               <FileText className="w-5 h-5 mr-4" /> Orders
             </div>
-            {pendingCount > 0 && <span className="bg-red-500 text-white px-2 py-0.5 rounded text-[9px]">{pendingCount}</span>}
+            {pendingCount > 0 && <span className="bg-red-500 text-white px-2 py-0.5 rounded text-[9px] animate-pulse">{pendingCount}</span>}
           </Link>
           <div className="pt-6 border-t border-slate-50 mt-6 space-y-2">
             <button onClick={() => navigate('/')} className="w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest text-slate-400 hover:bg-slate-100 transition-all">
@@ -296,9 +339,20 @@ const StatsView = ({ projects, orders }: { projects: Project[], orders: Order[] 
 
   return (
     <div className="space-y-12 animate-in fade-in duration-700">
-      <header>
-        <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Dashboard</h2>
-        <p className="text-slate-500 mt-2 text-lg font-medium">Hello, Tahlil. Here is your agency overview.</p>
+      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
+        <div>
+          <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Dashboard</h2>
+          <p className="text-slate-500 mt-2 text-lg font-medium">Hello, Tahlil. Here is your agency overview.</p>
+        </div>
+        <div className="bg-white px-6 py-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
+          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none">Status</p>
+            <p className="text-sm font-black text-slate-900 mt-1">Live & Active</p>
+          </div>
+        </div>
       </header>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -310,14 +364,17 @@ const StatsView = ({ projects, orders }: { projects: Project[], orders: Order[] 
       
       <div className="bg-white p-8 sm:p-12 rounded-[3.5rem] border border-slate-100 shadow-xl">
         <div className="flex justify-between items-center mb-10">
-          <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Recent Inquiries</h3>
-          <Link to="/admin/orders" className="text-indigo-600 text-[10px] font-black uppercase tracking-widest bg-indigo-50 px-6 py-2 rounded-xl">View All</Link>
+          <div className="flex items-center gap-4">
+            <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Recent Inquiries</h3>
+            {pendingOrders > 0 && <span className="bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded-full animate-pulse">{pendingOrders} New</span>}
+          </div>
+          <Link to="/admin/orders" className="text-indigo-600 text-[10px] font-black uppercase tracking-widest bg-indigo-50 px-6 py-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all">View All</Link>
         </div>
         <div className="space-y-6">
           {orders.slice(0, 5).map(order => (
-            <div key={order.id} className="flex items-center justify-between p-6 rounded-3xl bg-slate-50 border border-transparent hover:border-slate-100 transition-all shadow-sm">
+            <div key={order.id} className="flex items-center justify-between p-6 rounded-3xl bg-slate-50 border border-transparent hover:border-slate-100 transition-all shadow-sm group">
               <div className="flex items-center">
-                 <div className="w-14 h-14 rounded-2xl bg-white border border-slate-100 flex items-center justify-center font-black text-xl text-indigo-600 mr-5">
+                 <div className="w-14 h-14 rounded-2xl bg-white border border-slate-100 flex items-center justify-center font-black text-xl text-indigo-600 mr-5 group-hover:bg-indigo-600 group-hover:text-white transition-all">
                    {order.clientName[0]}
                  </div>
                  <div>
@@ -325,16 +382,26 @@ const StatsView = ({ projects, orders }: { projects: Project[], orders: Order[] 
                    <p className="text-[9px] text-slate-400 font-black uppercase mt-1">{order.projectType}</p>
                  </div>
               </div>
-              <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 
-                order.status === 'In Progress' ? 'bg-indigo-600 text-white' : 
-                'bg-emerald-100 text-emerald-700'
-              }`}>
-                {order.status}
-              </span>
+              <div className="flex items-center gap-4">
+                <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
+                  order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 
+                  order.status === 'In Progress' ? 'bg-indigo-600 text-white' : 
+                  'bg-emerald-100 text-emerald-700'
+                }`}>
+                  {order.status}
+                </span>
+                <Link to="/admin/orders" className="p-3 bg-white border border-slate-100 rounded-xl text-slate-300 hover:text-indigo-600 opacity-0 group-hover:opacity-100 transition-all">
+                  <ArrowLeft className="w-4 h-4 rotate-180" />
+                </Link>
+              </div>
             </div>
           ))}
-          {orders.length === 0 && <p className="text-center py-10 text-slate-400 font-bold uppercase text-xs">No orders yet.</p>}
+          {orders.length === 0 && (
+            <div className="text-center py-16">
+              <Sparkles className="w-12 h-12 text-slate-100 mx-auto mb-4" />
+              <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">Awaiting first inquiry...</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -402,6 +469,13 @@ const ManageOrders = ({ orders, setOrders }: { orders: Order[], setOrders: React
                   </td>
                 </tr>
               ))}
+              {orders.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-10 py-20 text-center">
+                    <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">No orders found in database.</p>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

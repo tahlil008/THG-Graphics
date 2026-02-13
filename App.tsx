@@ -38,7 +38,7 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [location.pathname]);
 
-  useEffect(() => {
+  const loadData = () => {
     const savedProjects = localStorage.getItem('designhub_projects');
     const savedOrders = localStorage.getItem('designhub_orders');
     const savedAuth = localStorage.getItem('designhub_admin_auth');
@@ -67,6 +67,23 @@ const App: React.FC = () => {
       }
     }
     if (savedAuth === 'true') setIsAdminLoggedIn(true);
+  };
+
+  useEffect(() => {
+    loadData();
+
+    // Listen for changes in other tabs/windows
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'designhub_orders' || e.key === 'designhub_projects') {
+        loadData();
+      }
+      if (e.key === 'designhub_admin_auth' && e.newValue !== 'true') {
+        setIsAdminLoggedIn(false);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
 
   const handleLogout = () => {
