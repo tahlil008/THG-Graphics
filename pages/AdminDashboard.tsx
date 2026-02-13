@@ -13,20 +13,19 @@ import {
   CheckCircle2,
   X,
   Upload,
-  Link as LinkIcon,
-  MessageCircle,
-  Mail,
   Bell,
   ArrowLeft,
   AlertCircle,
   LogOut,
   Sparkles,
   RefreshCcw,
-  Download,
-  Copy,
-  ClipboardCheck
+  Database,
+  CloudOff,
+  Cloud
 } from 'lucide-react';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Project, Order, Category, SubCategory, CATEGORIES } from '../types';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config';
 
 interface AdminDashboardProps {
   projects: Project[];
@@ -36,46 +35,65 @@ interface AdminDashboardProps {
   handleLogout: () => void;
 }
 
-const syncChannel = new BroadcastChannel('designhub_sync');
+const supabase = (SUPABASE_URL !== 'YOUR_SUPABASE_PROJECT_URL' && SUPABASE_URL !== '') 
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) 
+  : null;
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, orders, setOrders, handleLogout }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [dbStatus, setDbStatus] = useState<'connected' | 'offline'>('offline');
   const prevOrdersCount = useRef(orders.length);
 
   const pendingCount = orders.filter(o => o.status === 'Pending').length;
 
-  const handleSync = () => {
+  useEffect(() => {
+    if (supabase) {
+      setDbStatus('connected');
+    } else {
+      setDbStatus('offline');
+    }
+  }, []);
+
+  const handleSync = async () => {
     setIsSyncing(true);
-    const savedOrders = localStorage.getItem('designhub_orders');
-    const savedProjects = localStorage.getItem('designhub_projects');
-    if (savedOrders) {
-      try {
-        setOrders(JSON.parse(savedOrders));
-      } catch (e) {}
+    if (supabase) {
+      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+      if (!error && data) {
+        const formatted: Order[] = data.map((d: any) => ({
+          id: d.id,
+          clientName: d.client_name,
+          email: d.email,
+          whatsapp: d.whatsapp,
+          phone: d.phone,
+          projectType: d.project_type,
+          details: d.details,
+          status: d.status,
+          fileUrl: d.file_url,
+          createdAt: d.created_at
+        }));
+        setOrders(formatted);
+      }
+    } else {
+      const savedOrders = localStorage.getItem('designhub_orders');
+      if (savedOrders) setOrders(JSON.parse(savedOrders));
     }
-    if (savedProjects) {
-      try {
-        setProjects(JSON.parse(savedProjects));
-      } catch (e) {}
-    }
-    setTimeout(() => setIsSyncing(false), 1000);
+    setTimeout(() => setIsSyncing(false), 800);
   };
 
   useEffect(() => {
     if (orders.length > prevOrdersCount.current) {
       const latestOrder = orders[0]; 
-      if (latestOrder) {
+      if (latestOrder && prevOrdersCount.current !== 0) {
         setNewOrderAlert(latestOrder);
         try {
           const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-          audio.volume = 0.4;
+          audio.volume = 0.5;
           audio.play().catch(() => {});
         } catch (e) {}
-        const timer = setTimeout(() => setNewOrderAlert(null), 10000);
-        return () => clearTimeout(timer);
+        setTimeout(() => setNewOrderAlert(null), 8000);
       }
     }
     prevOrdersCount.current = orders.length;
@@ -83,14 +101,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
 
   return (
     <div className="flex flex-col lg:flex-row min-h-screen bg-[#F8FAFC] relative">
+      {/* Real-time Pop-up Notification */}
       {newOrderAlert && (
-        <div className="fixed top-6 right-6 z-[200] animate-in slide-in-from-right-10 fade-in duration-500">
-          <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl border border-indigo-500/30 flex items-center gap-5 max-w-sm">
-            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shrink-0 animate-pulse">
+        <div className="fixed top-6 right-6 z-[300] animate-in slide-in-from-right-10 fade-in duration-500">
+          <div className="bg-slate-900 text-white p-6 rounded-[2.5rem] shadow-2xl border border-indigo-500/30 flex items-center gap-5 max-w-sm">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shrink-0 animate-bounce">
               <Bell className="w-6 h-6 text-white" />
             </div>
             <div className="flex-grow">
-              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1">Live Order Alert</p>
+              <p className="text-[10px] font-black uppercase tracking-widest text-indigo-400 mb-1">New Order Received!</p>
               <p className="font-bold text-sm truncate">{newOrderAlert.clientName}</p>
               <p className="text-[10px] text-slate-400 font-medium truncate">{newOrderAlert.projectType}</p>
             </div>
@@ -113,22 +132,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
         </div>
         
         <nav className="p-6 space-y-3 flex-grow">
-          <Link 
-            to="/admin" 
-            className={`flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${location.pathname === '/admin' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
+          <Link to="/admin" className={`flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${location.pathname === '/admin' ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}>
             <TrendingUp className="w-5 h-5 mr-4" /> Analytics
           </Link>
-          <Link 
-            to="/admin/projects" 
-            className={`flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${location.pathname.startsWith('/admin/projects') ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
+          <Link to="/admin/projects" className={`flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${location.pathname.startsWith('/admin/projects') ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}>
             <Briefcase className="w-5 h-5 mr-4" /> Portfolio
           </Link>
-          <Link 
-            to="/admin/orders" 
-            className={`flex items-center justify-between p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${location.pathname.startsWith('/admin/orders') ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
+          <Link to="/admin/orders" className={`flex items-center justify-between p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${location.pathname.startsWith('/admin/orders') ? 'bg-indigo-600 text-white shadow-xl' : 'text-slate-500 hover:bg-slate-50'}`}>
             <div className="flex items-center">
               <FileText className="w-5 h-5 mr-4" /> Orders
             </div>
@@ -136,15 +146,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
           </Link>
           
           <div className="pt-6 border-t border-slate-50 mt-6 space-y-2">
-            <button 
-              onClick={handleSync} 
-              className={`w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${isSyncing ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:bg-slate-50'}`}
-            >
+            <div className={`flex items-center p-5 rounded-[1.5rem] font-black text-[10px] uppercase tracking-widest border border-slate-100 mb-4 ${dbStatus === 'connected' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+               {dbStatus === 'connected' ? <Cloud className="w-4 h-4 mr-3" /> : <CloudOff className="w-4 h-4 mr-3" />}
+               {dbStatus === 'connected' ? 'Cloud Online' : 'Local Mode'}
+            </div>
+            <button onClick={handleSync} className={`w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest transition-all ${isSyncing ? 'text-indigo-600 bg-indigo-50' : 'text-slate-400 hover:bg-slate-50'}`}>
               <RefreshCcw className={`w-5 h-5 mr-4 ${isSyncing ? 'animate-spin' : ''}`} /> 
-              {isSyncing ? 'Syncing...' : 'Sync Data'}
-            </button>
-            <button onClick={() => navigate('/')} className="w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest text-slate-400 hover:bg-slate-100 transition-all">
-              <ArrowLeft className="w-5 h-5 mr-4" /> Public View
+              {isSyncing ? 'Refreshing...' : 'Refresh Data'}
             </button>
             <button onClick={handleLogout} className="w-full flex items-center p-5 rounded-[1.5rem] font-black text-[11px] uppercase tracking-widest text-red-500 hover:bg-red-50 transition-all">
               <LogOut className="w-5 h-5 mr-4" /> Logout
@@ -155,8 +163,22 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
 
       <main className="flex-grow p-6 sm:p-12 lg:p-16 overflow-y-auto">
         <div className="max-w-7xl mx-auto">
+          {dbStatus === 'offline' && location.pathname === '/admin' && (
+            <div className="mb-10 p-8 bg-amber-50 border-2 border-amber-200 rounded-[2.5rem] flex items-start gap-6">
+              <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center shrink-0 text-amber-600">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h4 className="font-black text-amber-900 text-lg">ডাটাবেস কানেক্ট করা হয়নি!</h4>
+                <p className="text-amber-700 font-medium mt-1">
+                  আপনার অ্যাপটি বর্তমানে "লোকাল মোড" এ চলছে। অন্য ডিভাইস থেকে অর্ডার পেতে হলে আপনাকে <b>config.ts</b> ফাইলে আপনার Supabase ডিটেইলস দিতে হবে। 
+                  ডিটেইলস না দিলে অন্য ডিভাইসের অর্ডার এখানে আসবে না।
+                </p>
+              </div>
+            </div>
+          )}
           <Routes>
-            <Route path="/" element={<StatsView projects={projects} setProjects={setProjects} orders={orders} setOrders={setOrders} />} />
+            <Route path="/" element={<StatsView projects={projects} orders={orders} />} />
             <Route path="/projects" element={<ManageProjects projects={projects} setProjects={setProjects} />} />
             <Route path="/orders" element={<ManageOrders orders={orders} setOrders={setOrders} />} />
           </Routes>
@@ -166,182 +188,19 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ projects, setProjects, 
   );
 };
 
-const StatsView = ({ projects, setProjects, orders, setOrders }: { projects: Project[], setProjects: any, orders: Order[], setOrders: any }) => {
-  const [copySuccess, setCopySuccess] = useState(false);
-  const pendingOrders = orders.filter(o => o.status === 'Pending').length;
-  const completedOrders = orders.filter(o => o.status === 'Completed').length;
-
-  const exportData = () => {
-    const data = {
-      projects: JSON.parse(localStorage.getItem('designhub_projects') || '[]'),
-      orders: JSON.parse(localStorage.getItem('designhub_orders') || '[]')
-    };
-    navigator.clipboard.writeText(JSON.stringify(data));
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
-    alert("Data copied to clipboard! Paste it into the 'Import' field on another device.");
-  };
-
-  const importData = () => {
-    const input = prompt("Paste the data string here:");
-    if (input) {
-      try {
-        const data = JSON.parse(input);
-        if (data.projects && data.orders) {
-          localStorage.setItem('designhub_projects', JSON.stringify(data.projects));
-          localStorage.setItem('designhub_orders', JSON.stringify(data.orders));
-          setProjects(data.projects);
-          setOrders(data.orders);
-          alert("Import successful! Data refreshed.");
-        }
-      } catch (e) {
-        alert("Invalid data string.");
-      }
-    }
-  };
-
-  return (
-    <div className="space-y-12 animate-in fade-in duration-700">
-      <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-        <div>
-          <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Dashboard</h2>
-          <p className="text-slate-500 mt-2 text-lg font-medium">Hello, Tahlil. Here is your agency overview.</p>
-        </div>
-        <div className="bg-white px-6 py-4 rounded-3xl border border-slate-100 shadow-sm flex items-center gap-4">
-          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center">
-            <Sparkles className="w-5 h-5" />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest leading-none">Status</p>
-            <p className="text-sm font-black text-slate-900 mt-1">Live & Active</p>
-          </div>
-        </div>
-      </header>
-      
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-        <StatCard icon={<Briefcase className="w-8 h-8" />} label="Master Work" value={projects.length.toString()} color="indigo" />
-        <StatCard icon={<FileText className="w-8 h-8" />} label="Inquiries" value={orders.length.toString()} color="blue" />
-        <StatCard icon={<Clock className="w-8 h-8" />} label="Pending" value={pendingOrders.toString()} color="amber" />
-        <StatCard icon={<CheckCircle2 className="w-8 h-8" />} label="Completed" value={completedOrders.toString()} color="emerald" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-8 sm:p-12 rounded-[3.5rem] border border-slate-100 shadow-xl">
-          <div className="flex justify-between items-center mb-10">
-            <div className="flex items-center gap-4">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tighter">Recent Inquiries</h3>
-              {pendingOrders > 0 && <span className="bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded-full animate-pulse">{pendingOrders} New</span>}
-            </div>
-            <Link to="/admin/orders" className="text-indigo-600 text-[10px] font-black uppercase tracking-widest bg-indigo-50 px-6 py-2 rounded-xl hover:bg-indigo-600 hover:text-white transition-all">View All</Link>
-          </div>
-          <div className="space-y-6">
-            {orders.slice(0, 5).map(order => (
-              <div key={order.id} className="flex items-center justify-between p-6 rounded-3xl bg-slate-50 border border-transparent hover:border-slate-100 transition-all shadow-sm group">
-                <div className="flex items-center">
-                   <div className="w-14 h-14 rounded-2xl bg-white border border-slate-100 flex items-center justify-center font-black text-xl text-indigo-600 mr-5 group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                     {order.clientName[0]}
-                   </div>
-                   <div>
-                     <p className="font-black text-slate-900 text-lg tracking-tighter">{order.clientName}</p>
-                     <p className="text-[9px] text-slate-400 font-black uppercase mt-1">{order.projectType}</p>
-                   </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                    order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 
-                    order.status === 'In Progress' ? 'bg-indigo-600 text-white' : 
-                    'bg-emerald-100 text-emerald-700'
-                  }`}>
-                    {order.status}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-slate-900 p-8 sm:p-10 rounded-[3.5rem] text-white shadow-2xl relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-12 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
-          <div className="relative z-10 flex flex-col h-full">
-            <div className="mb-8">
-              <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center mb-6">
-                <RefreshCcw className="text-white w-6 h-6" />
-              </div>
-              <h3 className="text-2xl font-black tracking-tight mb-2">Cross-Device Sync</h3>
-              <p className="text-slate-400 text-sm font-medium leading-relaxed">
-                Currently, your data is stored on this device only. Use these tools to move your inquiries to another device.
-              </p>
-            </div>
-            <div className="mt-auto space-y-4">
-              <button 
-                onClick={exportData}
-                className="w-full flex items-center justify-between p-5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all group"
-              >
-                <div className="flex items-center">
-                  <Download className="w-5 h-5 mr-3 text-indigo-400" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Export Data</span>
-                </div>
-                {copySuccess ? <ClipboardCheck className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-600" />}
-              </button>
-              <button 
-                onClick={importData}
-                className="w-full flex items-center p-5 bg-indigo-600 hover:bg-indigo-500 rounded-2xl transition-all"
-              >
-                <RefreshCcw className="w-5 h-5 mr-3 text-white" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-white">Import Data</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const ManageProjects = ({ projects, setProjects }: { projects: Project[], setProjects: React.Dispatch<React.SetStateAction<Project[]>> }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [formData, setFormData] = useState({
-    name: '',
-    category: '' as Category | '',
-    subcategory: '' as SubCategory | '',
-    description: '',
-    link: '',
-    imageUrl: ''
-  });
+  const [formData, setFormData] = useState({ name: '', category: '' as Category | '', subcategory: '' as SubCategory | '', description: '', link: '', imageUrl: '' });
 
   const resetForm = () => {
     setFormData({ name: '', category: '', subcategory: '', description: '', link: '', imageUrl: '' });
     setShowAddForm(false);
     setEditingProject(null);
-    setErrorMsg('');
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (file.size > 2 * 1024 * 1024) {
-        alert("Image size is too large. Please select a file smaller than 2MB.");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setFormData({ ...formData, imageUrl: event.target.result as string });
-        }
-      };
-      reader.readAsDataURL(file);
-    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg('');
-    if (!formData.category || !formData.subcategory) {
-      setErrorMsg("Please select both category and subcategory.");
-      return;
-    }
     const newProject: Project = {
       id: editingProject ? editingProject.id : Math.random().toString(36).substr(2, 9),
       name: formData.name,
@@ -352,129 +211,47 @@ const ManageProjects = ({ projects, setProjects }: { projects: Project[], setPro
       imageUrl: formData.imageUrl || `https://picsum.photos/seed/${Math.random()}/800/600`,
       createdAt: editingProject ? editingProject.createdAt : Date.now()
     };
-    try {
-      setProjects(prev => {
-        const updated = editingProject 
-          ? prev.map(p => p.id === editingProject.id ? newProject : p) 
-          : [newProject, ...prev];
-        localStorage.setItem('designhub_projects', JSON.stringify(updated));
-        syncChannel.postMessage('update_projects');
-        return updated;
-      });
-      resetForm();
-    } catch (err) {
-      setErrorMsg("Failed to save project. Image might be too large.");
-    }
-  };
-
-  const handleDelete = (id: string) => {
-    if (window.confirm('Permanently delete project?')) {
-      const updated = projects.filter(p => p.id !== id);
-      setProjects(updated);
+    setProjects(prev => {
+      const updated = editingProject ? prev.map(p => p.id === editingProject.id ? newProject : p) : [newProject, ...prev];
       localStorage.setItem('designhub_projects', JSON.stringify(updated));
-      syncChannel.postMessage('update_projects');
-    }
-  };
-
-  const handleEdit = (p: Project) => {
-    setEditingProject(p);
-    setFormData({ 
-      name: p.name, 
-      category: p.category, 
-      subcategory: p.subcategory, 
-      description: p.description, 
-      link: p.link || '', 
-      imageUrl: p.imageUrl 
+      return updated;
     });
-    setShowAddForm(true);
+    resetForm();
   };
 
   return (
     <div className="space-y-12">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6">
-        <div>
-          <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Portfolio Master</h2>
-          <p className="text-slate-500 mt-2 font-medium">Manage your agency's best work assets.</p>
-        </div>
-        <button onClick={() => setShowAddForm(true)} className="bg-indigo-600 text-white px-8 py-5 rounded-[1.5rem] font-black uppercase text-xs tracking-widest flex items-center hover:bg-indigo-700 transition-all shadow-xl">
-          <Plus className="w-5 h-5 mr-3" /> Add Project
-        </button>
+      <div className="flex justify-between items-center">
+        <h2 className="text-4xl font-black text-slate-900 tracking-tighter">Portfolio Master</h2>
+        <button onClick={() => setShowAddForm(true)} className="bg-indigo-600 text-white px-8 py-5 rounded-[1.5rem] font-black uppercase text-xs tracking-widest flex items-center hover:bg-indigo-700 shadow-xl"><Plus className="w-5 h-5 mr-3" /> Add Project</button>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
         {projects.map(project => (
-          <div key={project.id} className="bg-white rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-xl flex flex-col group transition-all hover:-translate-y-1">
-            <div className="aspect-video relative overflow-hidden bg-slate-100">
-              <img src={project.imageUrl} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt={project.name} />
-            </div>
-            <div className="p-8 flex-grow">
-              <h3 className="font-black text-xl mb-2 text-slate-900 leading-tight">{project.name}</h3>
-              <p className="text-slate-500 text-sm line-clamp-2 mb-6 font-medium leading-relaxed">{project.description}</p>
-              <div className="flex justify-between items-center pt-6 border-t border-slate-50">
-                <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{project.category}</span>
-                <div className="flex space-x-3">
-                  <button onClick={() => handleEdit(project)} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all"><Edit className="w-4 h-4" /></button>
-                  <button onClick={() => handleDelete(project.id)} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all"><Trash2 className="w-4 h-4" /></button>
+          <div key={project.id} className="bg-white rounded-[2.5rem] overflow-hidden border border-slate-100 shadow-xl">
+             <img src={project.imageUrl} className="w-full h-48 object-cover" alt={project.name} />
+             <div className="p-8">
+                <h3 className="font-black text-xl mb-2">{project.name}</h3>
+                <div className="flex gap-4 mt-6 pt-6 border-t border-slate-50">
+                   <button onClick={() => { setEditingProject(project); setFormData({...project}); setShowAddForm(true); }} className="p-3 bg-indigo-50 text-indigo-600 rounded-xl"><Edit className="w-4 h-4" /></button>
+                   <button onClick={() => { if(window.confirm('Delete?')){ setProjects(projects.filter(p => p.id !== project.id)); }}} className="p-3 bg-red-50 text-red-600 rounded-xl"><Trash2 className="w-4 h-4" /></button>
                 </div>
-              </div>
-            </div>
+             </div>
           </div>
         ))}
       </div>
-
       {showAddForm && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-10 bg-slate-950/80 backdrop-blur-md overflow-y-auto">
-          <div className="bg-white rounded-[3rem] w-full max-w-2xl p-8 sm:p-12 relative shadow-2xl my-auto">
-            <button onClick={resetForm} className="absolute top-8 right-8 p-3 text-slate-400 hover:text-red-500 bg-slate-50 rounded-full transition-all"><X className="w-6 h-6" /></button>
-            <h3 className="text-3xl font-black mb-8 text-slate-900 tracking-tighter">{editingProject ? 'Edit Project' : 'New Project'}</h3>
-            {errorMsg && (
-              <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl flex items-center text-sm font-bold border border-red-100">
-                <AlertCircle className="w-4 h-4 mr-2" /> {errorMsg}
-              </div>
-            )}
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-white rounded-[3rem] w-full max-w-2xl p-12 relative shadow-2xl">
+            <button onClick={resetForm} className="absolute top-8 right-8 text-slate-400"><X /></button>
+            <h3 className="text-3xl font-black mb-8">{editingProject ? 'Edit' : 'Add'} Project</h3>
             <form onSubmit={handleSubmit} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 px-2 block">Project Name</label>
-                  <input required type="text" className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] outline-none font-bold" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} />
-                </div>
-                <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase text-slate-400 px-2 block">Category</label>
-                   <select required className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] outline-none font-bold appearance-none cursor-pointer" value={formData.category} onChange={(e) => setFormData({...formData, category: e.target.value as Category, subcategory: '' as SubCategory})}>
-                     <option value="">Select Category</option>
-                     {Object.keys(CATEGORIES).map(cat => <option key={cat} value={cat}>{cat}</option>)}
-                   </select>
-                </div>
-                <div className="space-y-2">
-                   <label className="text-[10px] font-black uppercase text-slate-400 px-2 block">Subcategory</label>
-                   <select required className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] outline-none font-bold appearance-none disabled:opacity-50" value={formData.subcategory} onChange={(e) => setFormData({...formData, subcategory: e.target.value as SubCategory})} disabled={!formData.category}>
-                     <option value="">Select Sub-Type</option>
-                     {formData.category && CATEGORIES[formData.category as Category].map(sub => <option key={sub} value={sub}>{sub}</option>)}
-                   </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-slate-400 px-2 block">External Link (Opt)</label>
-                  <input type="url" placeholder="https://" className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.25rem] outline-none font-bold" value={formData.link} onChange={(e) => setFormData({...formData, link: e.target.value})} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 px-2 block">Description</label>
-                <textarea required rows={3} className="w-full px-6 py-4 bg-slate-50 border border-slate-100 rounded-[1.5rem] outline-none font-bold resize-none" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-slate-400 px-2 block">Visual Asset</label>
-                <div className="relative group">
-                  <input type="file" accept="image/png, image/jpeg" onChange={handleFileChange} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" />
-                  <div className={`w-full py-8 border-2 border-dashed rounded-[1.5rem] flex flex-col items-center justify-center transition-all ${formData.imageUrl ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 bg-slate-50'}`}>
-                    {formData.imageUrl ? <img src={formData.imageUrl} className="h-32 rounded-lg mb-2 shadow-lg" alt="Preview" /> : <Upload className="w-8 h-8 mb-2 text-slate-300" />}
-                    <p className="text-slate-900 font-black text-[10px] uppercase tracking-widest">{formData.imageUrl ? 'Change Image' : 'Click to Upload (Max 2MB)'}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="flex gap-4 pt-4">
-                <button type="button" onClick={resetForm} className="flex-1 bg-slate-100 text-slate-500 font-black py-5 rounded-[1.5rem] hover:bg-slate-200 transition-all uppercase text-[10px]">Cancel</button>
-                <button type="submit" className="flex-[2] bg-slate-900 text-white font-black py-5 rounded-[1.5rem] hover:bg-indigo-600 transition-all shadow-lg uppercase text-[10px] active:scale-95">Save Project</button>
-              </div>
+               <input required placeholder="Name" className="w-full px-6 py-4 bg-slate-50 rounded-[1.25rem] outline-none font-bold" value={formData.name} onChange={(e)=>setFormData({...formData, name: e.target.value})} />
+               <select required className="w-full px-6 py-4 bg-slate-50 rounded-[1.25rem] outline-none font-bold" value={formData.category} onChange={(e)=>setFormData({...formData, category: e.target.value as any})}>
+                 <option value="">Category</option>
+                 {Object.keys(CATEGORIES).map(c=><option key={c} value={c}>{c}</option>)}
+               </select>
+               <textarea required placeholder="Description" className="w-full px-6 py-4 bg-slate-50 rounded-[1.5rem] outline-none font-bold h-32" value={formData.description} onChange={(e)=>setFormData({...formData, description: e.target.value})} />
+               <button type="submit" className="w-full bg-slate-900 text-white font-black py-5 rounded-[1.5rem] uppercase text-xs tracking-widest">Save Project</button>
             </form>
           </div>
         </div>
@@ -483,121 +260,101 @@ const ManageProjects = ({ projects, setProjects }: { projects: Project[], setPro
   );
 };
 
+const StatsView = ({ projects, orders }: { projects: Project[], orders: Order[] }) => {
+  const pending = orders.filter(o => o.status === 'Pending').length;
+  return (
+    <div className="space-y-12 animate-in fade-in duration-700">
+      <header>
+        <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Dashboard</h2>
+        <p className="text-slate-500 mt-2 text-lg font-medium">Monitoring studio performance and live inquiries.</p>
+      </header>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-8">
+        <StatCard icon={<Briefcase className="w-8 h-8" />} label="Total Portfolio" value={projects.length.toString()} color="indigo" />
+        <StatCard icon={<FileText className="w-8 h-8" />} label="All Orders" value={orders.length.toString()} color="blue" />
+        <StatCard icon={<Clock className="w-8 h-8" />} label="Pending" value={pending.toString()} color="amber" />
+      </div>
+      <div className="bg-white p-10 rounded-[3.5rem] shadow-xl border border-slate-100">
+        <h3 className="text-2xl font-black mb-8">Recent Orders</h3>
+        <div className="space-y-4">
+          {orders.slice(0, 5).map(order => (
+            <div key={order.id} className="p-6 rounded-3xl bg-slate-50 flex justify-between items-center">
+              <div>
+                <p className="font-black text-slate-900">{order.clientName}</p>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{order.projectType}</p>
+              </div>
+              <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase ${order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{order.status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ManageOrders = ({ orders, setOrders }: { orders: Order[], setOrders: React.Dispatch<React.SetStateAction<Order[]>> }) => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const updateStatus = (id: string, status: Order['status']) => {
+
+  const updateStatus = async (id: string, status: Order['status']) => {
+    if (supabase) {
+      const { error } = await supabase.from('orders').update({ status }).eq('id', id);
+      if (error) alert("Error updating cloud");
+    }
     const updated = orders.map(o => o.id === id ? { ...o, status } : o);
     setOrders(updated);
     localStorage.setItem('designhub_orders', JSON.stringify(updated));
-    syncChannel.postMessage('update_orders');
     if (selectedOrder?.id === id) setSelectedOrder({ ...selectedOrder, status });
   };
-  const deleteOrder = (id: string) => {
-    if (window.confirm('Terminate client inquiry?')) {
+
+  const deleteOrder = async (id: string) => {
+    if (window.confirm('Delete?')) {
+      if (supabase) await supabase.from('orders').delete().eq('id', id);
       const updated = orders.filter(o => o.id !== id);
       setOrders(updated);
       localStorage.setItem('designhub_orders', JSON.stringify(updated));
-      syncChannel.postMessage('update_orders');
       setSelectedOrder(null);
     }
   };
+
   return (
-    <div className="space-y-12 animate-in fade-in duration-500">
-      <header>
-        <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Orders</h2>
-        <p className="text-slate-500 mt-2 text-lg font-medium">Coordinate client intake and maintenance cycles.</p>
-      </header>
+    <div className="space-y-12">
+      <h2 className="text-5xl font-black text-slate-900 tracking-tighter">Manage Orders</h2>
       <div className="bg-white rounded-[3rem] border border-slate-100 shadow-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-10 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</th>
-                <th className="px-10 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">Type</th>
-                <th className="px-10 py-8 text-[10px) font-black text-slate-400 uppercase tracking-widest text-center">Lifecycle</th>
-                <th className="px-10 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ops</th>
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 border-b border-slate-100">
+            <tr>
+              <th className="px-10 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest">Client</th>
+              <th className="px-10 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Status</th>
+              <th className="px-10 py-8 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-50">
+            {orders.map(order => (
+              <tr key={order.id} className="hover:bg-slate-50/50">
+                <td className="px-10 py-8">
+                  <div className="font-black text-slate-900 text-lg">{order.clientName}</div>
+                  <div className="text-[10px] text-slate-400 font-bold uppercase">{order.projectType}</div>
+                </td>
+                <td className="px-10 py-8 text-center">
+                  <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase ${order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{order.status}</span>
+                </td>
+                <td className="px-10 py-8 text-right">
+                  <button onClick={() => setSelectedOrder(order)} className="px-6 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase">Review</button>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {orders.map(order => (
-                <tr key={order.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-10 py-8">
-                    <div className="font-black text-slate-900 text-lg tracking-tighter">{order.clientName}</div>
-                    <div className="text-[10px] text-slate-400 font-black uppercase mt-1">{order.email}</div>
-                  </td>
-                  <td className="px-10 py-8">
-                    <span className="text-base text-slate-900 font-black tracking-tight">{order.projectType.split(' - ')[0]}</span>
-                  </td>
-                  <td className="px-10 py-8 text-center">
-                    <span className={`inline-block px-5 py-2 rounded-full text-[9px] font-black uppercase tracking-widest ${
-                      order.status === 'Pending' ? 'bg-amber-100 text-amber-700' : 
-                      order.status === 'In Progress' ? 'bg-indigo-600 text-white' : 
-                      'bg-emerald-100 text-emerald-700'
-                    }`}>
-                      {order.status}
-                    </span>
-                  </td>
-                  <td className="px-10 py-8 text-right">
-                    <button onClick={() => setSelectedOrder(order)} className="px-6 py-2 bg-white border border-slate-200 text-slate-900 rounded-xl text-[10px] font-black uppercase hover:bg-slate-950 hover:text-white transition-all">Review</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
       {selectedOrder && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-md overflow-y-auto">
-          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-10 sm:p-16 relative shadow-2xl overflow-y-auto max-h-[90vh]">
-            <button onClick={() => setSelectedOrder(null)} className="absolute top-10 right-10 p-4 text-slate-400 hover:text-red-500 bg-slate-50 rounded-full transition-all"><X className="w-6 h-6" /></button>
-            <div className="text-center mb-10">
-              <h3 className="text-4xl font-black text-slate-900 tracking-tighter leading-none mb-3">{selectedOrder.clientName}</h3>
-              <p className="text-indigo-600 font-black uppercase text-[10px] tracking-[0.4em]">{selectedOrder.projectType}</p>
-            </div>
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">Email</label>
-                  <p className="font-black text-slate-900 break-all">{selectedOrder.email}</p>
-                </div>
-                <div className="p-6 bg-slate-50 rounded-3xl border border-slate-100">
-                  <label className="text-[10px] font-black uppercase text-slate-400 block mb-2 tracking-widest">WhatsApp</label>
-                  <p className="font-black text-emerald-600">{selectedOrder.whatsapp}</p>
-                </div>
-              </div>
-              <div className="p-10 bg-slate-50 rounded-[2.5rem] border-l-8 border-indigo-600 text-slate-700 text-xl font-bold whitespace-pre-wrap">
-                {selectedOrder.details}
-              </div>
-              {selectedOrder.fileUrl && (
-                <div className="p-8 bg-slate-950 rounded-3xl flex items-center justify-between shadow-2xl">
-                  <div className="flex items-center">
-                    <Upload className="text-white w-6 h-6 mr-4" />
-                    <div>
-                      <p className="text-lg font-black text-white uppercase tracking-widest">Asset</p>
-                      <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Inbound File</p>
-                    </div>
-                  </div>
-                  <a href={selectedOrder.fileUrl} target="_blank" rel="noreferrer" className="bg-white text-slate-950 px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all transform active:scale-95">View File</a>
-                </div>
-              )}
-              <div className="pt-8 border-t border-slate-100 space-y-8">
-                <div className="flex flex-col sm:flex-row gap-4">
-                  {['Pending', 'In Progress', 'Completed'].map((status) => (
-                    <button 
-                      key={status}
-                      onClick={() => updateStatus(selectedOrder.id, status as Order['status'])}
-                      className={`flex-1 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                        selectedOrder.status === status ? 'bg-slate-950 text-white shadow-xl scale-105' : 'bg-slate-50 text-slate-300 hover:bg-slate-100'
-                      }`}
-                    >
-                      {status}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex gap-4">
-                  <button onClick={() => deleteOrder(selectedOrder.id)} className="flex-1 p-6 bg-red-50 text-red-600 rounded-3xl hover:bg-red-600 hover:text-white transition-all font-black text-[10px] uppercase tracking-widest">Delete Inquiry</button>
-                  <button onClick={() => setSelectedOrder(null)} className="flex-1 p-6 bg-slate-950 text-white rounded-3xl hover:bg-indigo-600 transition-all font-black text-[10px] uppercase tracking-widest">Close</button>
-                </div>
+          <div className="bg-white rounded-[3.5rem] w-full max-w-2xl p-10 relative">
+            <button onClick={() => setSelectedOrder(null)} className="absolute top-10 right-10 p-4 text-slate-400"><X /></button>
+            <h3 className="text-4xl font-black mb-8">{selectedOrder.clientName}</h3>
+            <div className="space-y-6">
+              <div className="p-6 bg-slate-50 rounded-3xl font-bold text-lg">{selectedOrder.details}</div>
+              <div className="flex gap-4">
+                 <button onClick={()=>updateStatus(selectedOrder.id, 'Completed')} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs">Mark Completed</button>
+                 <button onClick={()=>deleteOrder(selectedOrder.id)} className="flex-1 py-4 bg-red-50 text-red-600 rounded-2xl font-black uppercase text-xs">Delete</button>
               </div>
             </div>
           </div>
@@ -608,14 +365,12 @@ const ManageOrders = ({ orders, setOrders }: { orders: Order[], setOrders: React
 };
 
 const StatCard = ({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: string, color: string }) => (
-  <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl transform hover:-translate-y-1 transition-all group relative overflow-hidden">
-    <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center mb-8 bg-${color}-50 shadow-sm transition-all group-hover:bg-${color}-600 group-hover:text-white relative z-10`}>
+  <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl group">
+    <div className={`w-16 h-16 rounded-[1.5rem] flex items-center justify-center mb-8 bg-${color}-50 text-${color}-600 group-hover:bg-${color}-600 group-hover:text-white transition-all`}>
       {icon}
     </div>
-    <div className="relative z-10">
-      <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
-      <p className="text-5xl font-black text-slate-900 tracking-tighter leading-none">{value}</p>
-    </div>
+    <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">{label}</p>
+    <p className="text-5xl font-black text-slate-900 tracking-tighter">{value}</p>
   </div>
 );
 
