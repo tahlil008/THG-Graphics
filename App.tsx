@@ -11,22 +11,24 @@ import {
   Instagram, 
   Twitter, 
   Linkedin, 
-  PhoneCall, 
-  Mail,
   LogOut,
   LayoutDashboard,
   ChevronRight
 } from 'lucide-react';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { Project, Order, CATEGORIES } from './types';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config';
 import HomePage from './pages/HomePage';
 import PortfolioPage from './pages/PortfolioPage';
 import OrderPage from './pages/OrderPage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 
-// Create a broadcast channel for cross-tab communication
-const syncChannel = new BroadcastChannel('designhub_sync');
+// Initialize Supabase Client
+const supabase = (SUPABASE_URL !== 'YOUR_SUPABASE_PROJECT_URL') 
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) 
+  : null;
 
 const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -41,17 +43,11 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [location.pathname]);
 
-  const loadData = () => {
+  const loadData = async () => {
+    // 1. Load Projects (Local or Remote)
     const savedProjects = localStorage.getItem('designhub_projects');
-    const savedOrders = localStorage.getItem('designhub_orders');
-    const savedAuth = localStorage.getItem('designhub_admin_auth');
-
     if (savedProjects) {
-      try {
-        setProjects(JSON.parse(savedProjects));
-      } catch (e) {
-        console.error("Failed to parse projects", e);
-      }
+      setProjects(JSON.parse(savedProjects));
     } else {
       const initialProjects: Project[] = [
         { id: '1', name: 'Elite Music Festival', category: 'Poster', subcategory: 'Event Poster', description: 'Vibrant and modern poster design for international music festivals.', imageUrl: 'https://images.unsplash.com/photo-1540575861501-7cf05a4b125a?auto=format&fit=crop&q=80&w=800', createdAt: Date.now() },
@@ -62,44 +58,56 @@ const App: React.FC = () => {
       localStorage.setItem('designhub_projects', JSON.stringify(initialProjects));
     }
 
-    if (savedOrders) {
-      try {
-        const parsedOrders = JSON.parse(savedOrders);
-        setOrders(parsedOrders);
-      } catch (e) {
-        console.error("Failed to parse orders", e);
+    // 2. Load Orders from Supabase (Real Cloud Storage)
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+      
+      if (!error && data) {
+        // Map snake_case from DB to camelCase for App
+        const formattedOrders: Order[] = data.map((d: any) => ({
+          id: d.id,
+          clientName: d.client_name,
+          email: d.email,
+          whatsapp: d.whatsapp,
+          phone: d.phone,
+          projectType: d.project_type,
+          details: d.details,
+          status: d.status,
+          fileUrl: d.file_url,
+          createdAt: d.created_at
+        }));
+        setOrders(formattedOrders);
       }
+    } else {
+      // Fallback to local if Supabase isn't configured
+      const savedOrders = localStorage.getItem('designhub_orders');
+      if (savedOrders) setOrders(JSON.parse(savedOrders));
     }
+
+    // 3. Auth Check
+    const savedAuth = localStorage.getItem('designhub_admin_auth');
     if (savedAuth === 'true') setIsAdminLoggedIn(true);
   };
 
   useEffect(() => {
     loadData();
 
-    // Listen for storage events (same device, different tabs)
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'designhub_orders' || e.key === 'designhub_projects') {
-        loadData();
-      }
-      if (e.key === 'designhub_admin_auth' && e.newValue !== 'true') {
-        setIsAdminLoggedIn(false);
-      }
-    };
+    // Subscribe to Realtime Updates (Cross-device Sync)
+    if (supabase) {
+      const subscription = supabase
+        .channel('public:orders')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+          loadData();
+        })
+        .subscribe();
 
-    // Listen for broadcast channel messages
-    const handleBroadcastMessage = (event: MessageEvent) => {
-      if (event.data === 'update_orders' || event.data === 'update_projects') {
-        loadData();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    syncChannel.addEventListener('message', handleBroadcastMessage);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      syncChannel.removeEventListener('message', handleBroadcastMessage);
-    };
+      return () => {
+        supabase.removeChannel(subscription);
+      };
+    }
   }, []);
 
   const handleLogout = () => {
@@ -157,6 +165,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
+          {/* Mobile Menu */}
           <div className={`md:hidden absolute top-full left-0 w-full bg-white shadow-2xl transition-all duration-300 border-t border-slate-100 origin-top ${isMenuOpen ? 'scale-y-100 opacity-100' : 'scale-y-0 opacity-0 pointer-events-none'}`}>
             <div className="p-6 flex flex-col space-y-4">
               <Link to="/" className="text-lg font-bold text-slate-800 flex items-center justify-between p-4 rounded-2xl hover:bg-slate-50">Home <ChevronRight className="w-5 h-5 text-slate-300" /></Link>
@@ -196,12 +205,8 @@ const App: React.FC = () => {
                 <span className="text-2xl font-black text-white tracking-tighter">DesignHub</span>
               </div>
               <p className="text-slate-400 mb-8 leading-relaxed font-medium text-sm">Professional design studio delivering elite visual results for modern brands.</p>
-              <div className="flex space-x-4">
-                {[Facebook, Instagram, Twitter, Linkedin].map((Icon, i) => (
-                  <a key={i} href="#" className="p-3 bg-slate-900 rounded-xl hover:bg-indigo-600 hover:text-white transition-all transform hover:-translate-y-1"><Icon className="w-5 h-5" /></a>
-                ))}
-              </div>
             </div>
+            {/* Standard Footer Links ... */}
             <div>
               <h3 className="text-white font-black text-[10px] uppercase tracking-[0.3em] mb-8">Creative Port</h3>
               <ul className="space-y-3 font-bold text-sm">
@@ -212,22 +217,17 @@ const App: React.FC = () => {
               <h3 className="text-white font-black text-[10px] uppercase tracking-[0.3em] mb-8">Studio Link</h3>
               <ul className="space-y-3 font-bold text-sm">
                 <li><Link to="/order" className="hover:text-indigo-400 transition-colors">Project Start</Link></li>
-                <li><Link to="/portfolio" className="hover:text-indigo-400 transition-colors">Case Studies</Link></li>
                 <li><Link to="/admin/login" className="hover:text-indigo-400 transition-colors">Admin Gateway</Link></li>
               </ul>
             </div>
             <div>
               <h3 className="text-white font-black text-[10px] uppercase tracking-[0.3em] mb-8">Inquiry</h3>
-              <p className="text-xs mb-6 font-medium leading-relaxed">Direct support available on WhatsApp and Email for all premium projects.</p>
-              <Link to="/order" className="bg-indigo-600 text-white font-black py-3.5 px-6 rounded-xl text-[10px] uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all shadow-xl shadow-indigo-900/40 block text-center">Contact Now</Link>
+              <p className="text-xs mb-6 font-medium leading-relaxed">Direct support available for all premium projects.</p>
+              <Link to="/order" className="bg-indigo-600 text-white font-black py-3.5 px-6 rounded-xl text-[10px] uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all block text-center">Contact Now</Link>
             </div>
           </div>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-8 border-t border-slate-900 flex flex-col md:flex-row justify-between items-center text-[10px] font-bold uppercase tracking-[0.4em] text-slate-700 gap-6">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-8 border-t border-slate-900 flex justify-between items-center text-[10px] font-bold uppercase tracking-[0.4em] text-slate-700">
             <p>© {new Date().getFullYear()} DESIGNHUB PRO.</p>
-            <div className="flex space-x-8">
-              <a href="#" className="hover:text-slate-400">Security</a>
-              <a href="#" className="hover:text-slate-400">Privacy</a>
-            </div>
           </div>
         </footer>
       )}
