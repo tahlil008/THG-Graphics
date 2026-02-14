@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Routes, Route, useNavigate, Link, useLocation } from 'react-router-dom';
 import { 
   Palette, 
@@ -7,10 +7,6 @@ import {
   Settings, 
   Menu, 
   X, 
-  Facebook, 
-  Instagram, 
-  Twitter, 
-  Linkedin, 
   LogOut,
   LayoutDashboard,
   ChevronRight
@@ -25,10 +21,9 @@ import OrderPage from './pages/OrderPage';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminDashboard from './pages/AdminDashboard';
 
-// Initialize Supabase Client
-const supabase = (SUPABASE_URL !== 'YOUR_SUPABASE_PROJECT_URL') 
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) 
-  : null;
+// Safe Supabase Initialization
+const isSupabaseConfigured = SUPABASE_URL && SUPABASE_URL !== 'YOUR_SUPABASE_PROJECT_URL';
+const supabase = isSupabaseConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 const App: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -38,36 +33,24 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  useEffect(() => {
-    setIsMenuOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [location.pathname]);
-
-  const loadData = async () => {
-    // 1. Load Projects (Local or Remote)
+  const loadData = useCallback(async () => {
+    // 1. Load Projects
     const savedProjects = localStorage.getItem('designhub_projects');
     if (savedProjects) {
       setProjects(JSON.parse(savedProjects));
     } else {
-      const initialProjects: Project[] = [
-        { id: '1', name: 'Elite Music Festival', category: 'Poster', subcategory: 'Event Poster', description: 'Vibrant and modern poster design for international music festivals.', imageUrl: 'https://images.unsplash.com/photo-1540575861501-7cf05a4b125a?auto=format&fit=crop&q=80&w=800', createdAt: Date.now() },
-        { id: '2', name: 'Cloud SaaS Header', category: 'Banner', subcategory: 'Website Banner', description: 'Clean, high-converting hero banner for a modern enterprise platform.', imageUrl: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&q=80&w=800', createdAt: Date.now() },
-        { id: '3', name: 'Premium Identity', category: 'Visiting Card', subcategory: 'Company Card', description: 'Minimalist luxury business card design for a high-end firm.', imageUrl: 'https://images.unsplash.com/photo-1589330694653-ded6df03f754?auto=format&fit=crop&q=80&w=800', createdAt: Date.now() },
+      const initial: Project[] = [
+        { id: '1', name: 'Elite Music Festival', category: 'Poster', subcategory: 'Event Poster', description: 'Vibrant and modern poster design.', imageUrl: 'https://images.unsplash.com/photo-1540575861501-7cf05a4b125a?auto=format&fit=crop&q=80&w=800', createdAt: Date.now() },
       ];
-      setProjects(initialProjects);
-      localStorage.setItem('designhub_projects', JSON.stringify(initialProjects));
+      setProjects(initial);
+      localStorage.setItem('designhub_projects', JSON.stringify(initial));
     }
 
-    // 2. Load Orders from Supabase (Real Cloud Storage)
+    // 2. Load Orders from Cloud
     if (supabase) {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
+      const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
       if (!error && data) {
-        // Map snake_case from DB to camelCase for App
-        const formattedOrders: Order[] = data.map((d: any) => ({
+        setOrders(data.map((d: any) => ({
           id: d.id,
           clientName: d.client_name,
           email: d.email,
@@ -78,56 +61,53 @@ const App: React.FC = () => {
           status: d.status,
           fileUrl: d.file_url,
           createdAt: d.created_at
-        }));
-        setOrders(formattedOrders);
+        })));
       }
     } else {
-      // Fallback to local if Supabase isn't configured
-      const savedOrders = localStorage.getItem('designhub_orders');
-      if (savedOrders) setOrders(JSON.parse(savedOrders));
+      const saved = localStorage.getItem('designhub_orders');
+      if (saved) setOrders(JSON.parse(saved));
     }
-
-    // 3. Auth Check
-    const savedAuth = localStorage.getItem('designhub_admin_auth');
-    if (savedAuth === 'true') setIsAdminLoggedIn(true);
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
+    setIsMenuOpen(false);
+    window.scrollTo(0, 0);
 
-    // Subscribe to Realtime Updates (Cross-device Sync)
+    // Setup Real-time Subscription
     if (supabase) {
-      const subscription = supabase
-        .channel('public:orders')
+      const channel = supabase.channel('order_changes')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
           loadData();
         })
         .subscribe();
-
-      return () => {
-        supabase.removeChannel(subscription);
-      };
+      return () => { supabase.removeChannel(channel); };
     }
+  }, [location.pathname, loadData]);
+
+  useEffect(() => {
+    const auth = localStorage.getItem('designhub_admin_auth');
+    if (auth === 'true') setIsAdminLoggedIn(true);
   }, []);
 
   const handleLogout = () => {
-    if (window.confirm("Logout from Administrative Control?")) {
+    if (confirm("Logout from Administrative Control?")) {
       setIsAdminLoggedIn(false);
       localStorage.removeItem('designhub_admin_auth');
       navigate('/');
     }
   };
 
-  const showNavbar = !location.pathname.startsWith('/admin') || location.pathname === '/admin/login';
+  const isAtAdmin = location.pathname.startsWith('/admin') && location.pathname !== '/admin/login';
 
   return (
     <div className="min-h-screen flex flex-col selection:bg-indigo-600 selection:text-white">
-      {showNavbar && (
-        <nav className="sticky top-0 z-[100] glass-effect border-b border-slate-200/50 shadow-sm transition-all duration-300">
+      {!isAtAdmin && (
+        <nav className="sticky top-0 z-[100] glass-effect border-b border-slate-200/50 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-16 md:h-20 items-center">
               <Link to="/" className="flex items-center group">
-                <div className="bg-indigo-600 p-2 rounded-xl mr-3 shadow-lg shadow-indigo-200 group-hover:rotate-12 transition-transform duration-300">
+                <div className="bg-indigo-600 p-2 rounded-xl mr-3 shadow-lg group-hover:rotate-12 transition-all">
                   <Palette className="text-white w-5 h-5 md:w-6 md:h-6" />
                 </div>
                 <span className="text-xl md:text-2xl font-black text-slate-900 tracking-tighter">
@@ -136,53 +116,32 @@ const App: React.FC = () => {
               </Link>
 
               <div className="hidden md:flex space-x-8 items-center">
-                <Link to="/" className={`text-sm font-bold transition-all hover:text-indigo-600 ${location.pathname === '/' ? 'text-indigo-600' : 'text-slate-500'}`}>Home</Link>
-                <Link to="/portfolio" className={`text-sm font-bold transition-all hover:text-indigo-600 ${location.pathname === '/portfolio' ? 'text-indigo-600' : 'text-slate-500'}`}>Portfolio</Link>
-                <Link to="/order" className="bg-slate-900 text-white px-8 py-3 rounded-xl hover:bg-indigo-600 transition-all font-bold flex items-center shadow-xl shadow-slate-200 text-sm hover:-translate-y-0.5">
+                <Link to="/" className={`text-sm font-bold ${location.pathname === '/' ? 'text-indigo-600' : 'text-slate-500'}`}>Home</Link>
+                <Link to="/portfolio" className={`text-sm font-bold ${location.pathname === '/portfolio' ? 'text-indigo-600' : 'text-slate-500'}`}>Portfolio</Link>
+                <Link to="/order" className="bg-slate-900 text-white px-8 py-3 rounded-xl hover:bg-indigo-600 transition-all font-bold flex items-center shadow-xl text-sm">
                   <ShoppingBag className="w-4 h-4 mr-2" /> Order
                 </Link>
-                {isAdminLoggedIn ? (
-                  <div className="flex items-center space-x-4 border-l border-slate-200 pl-8 ml-4">
-                    <Link to="/admin" className="text-indigo-600 hover:text-indigo-700 flex items-center font-bold text-sm">
-                      <LayoutDashboard className="w-4 h-4 mr-2" /> Admin
-                    </Link>
-                    <button onClick={handleLogout} className="text-red-500 hover:bg-red-50 p-2.5 rounded-xl transition-all">
-                      <LogOut className="w-5 h-5" />
-                    </button>
-                  </div>
-                ) : (
-                  <Link to="/admin/login" className="text-slate-300 hover:text-indigo-600 transition-all p-2 rounded-xl hover:bg-slate-50">
-                    <Settings className="w-5 h-5" />
+                {isAdminLoggedIn && (
+                  <Link to="/admin" className="text-indigo-600 font-bold text-sm flex items-center">
+                    <LayoutDashboard className="w-4 h-4 mr-2" /> Admin
                   </Link>
                 )}
               </div>
 
               <div className="md:hidden flex items-center">
-                <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="text-slate-900 p-2.5 bg-slate-50 border border-slate-100 rounded-xl transition-all active:scale-90">
+                <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2.5 bg-slate-50 rounded-xl">
                   {isMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                 </button>
               </div>
             </div>
           </div>
-
-          {/* Mobile Menu */}
-          <div className={`md:hidden absolute top-full left-0 w-full bg-white shadow-2xl transition-all duration-300 border-t border-slate-100 origin-top ${isMenuOpen ? 'scale-y-100 opacity-100' : 'scale-y-0 opacity-0 pointer-events-none'}`}>
-            <div className="p-6 flex flex-col space-y-4">
-              <Link to="/" className="text-lg font-bold text-slate-800 flex items-center justify-between p-4 rounded-2xl hover:bg-slate-50">Home <ChevronRight className="w-5 h-5 text-slate-300" /></Link>
-              <Link to="/portfolio" className="text-lg font-bold text-slate-800 flex items-center justify-between p-4 rounded-2xl hover:bg-slate-50">Portfolio <ChevronRight className="w-5 h-5 text-slate-300" /></Link>
-              <Link to="/order" className="bg-indigo-600 text-white py-5 rounded-2xl font-black flex items-center justify-center shadow-xl shadow-indigo-100 text-lg"><ShoppingBag className="w-5 h-5 mr-3" /> Place Order</Link>
-              {isAdminLoggedIn ? (
-                <div className="flex flex-col gap-2">
-                  <Link to="/admin" className="text-indigo-600 font-bold flex items-center justify-center py-4 bg-indigo-50 rounded-2xl"><LayoutDashboard className="w-5 h-5 mr-2" /> Admin Panel</Link>
-                  <button onClick={handleLogout} className="text-red-500 font-bold flex items-center justify-center py-4 bg-red-50 rounded-2xl w-full">
-                    <LogOut className="w-5 h-5 mr-2" /> Logout
-                  </button>
-                </div>
-              ) : (
-                <Link to="/admin/login" className="text-slate-400 font-bold flex items-center justify-center py-4 border border-slate-100 rounded-2xl">Admin Access</Link>
-              )}
+          {isMenuOpen && (
+            <div className="md:hidden p-6 bg-white border-t border-slate-100 flex flex-col space-y-4">
+              <Link to="/" className="p-4 font-bold text-slate-800">Home</Link>
+              <Link to="/portfolio" className="p-4 font-bold text-slate-800">Portfolio</Link>
+              <Link to="/order" className="bg-indigo-600 text-white p-5 rounded-2xl font-black text-center">Place Order</Link>
             </div>
-          </div>
+          )}
         </nav>
       )}
 
@@ -196,39 +155,9 @@ const App: React.FC = () => {
         </Routes>
       </main>
 
-      {showNavbar && (
-        <footer className="bg-slate-950 text-slate-400 pt-16 pb-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 grid grid-cols-1 md:grid-cols-4 gap-10">
-            <div>
-              <div className="flex items-center mb-6">
-                <Palette className="text-indigo-600 w-8 h-8 mr-3" />
-                <span className="text-2xl font-black text-white tracking-tighter">DesignHub</span>
-              </div>
-              <p className="text-slate-400 mb-8 leading-relaxed font-medium text-sm">Professional design studio delivering elite visual results for modern brands.</p>
-            </div>
-            {/* Standard Footer Links ... */}
-            <div>
-              <h3 className="text-white font-black text-[10px] uppercase tracking-[0.3em] mb-8">Creative Port</h3>
-              <ul className="space-y-3 font-bold text-sm">
-                {Object.keys(CATEGORIES).slice(0, 4).map(cat => <li key={cat}><Link to="/portfolio" className="hover:text-indigo-400 transition-colors">{cat}</Link></li>)}
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-white font-black text-[10px] uppercase tracking-[0.3em] mb-8">Studio Link</h3>
-              <ul className="space-y-3 font-bold text-sm">
-                <li><Link to="/order" className="hover:text-indigo-400 transition-colors">Project Start</Link></li>
-                <li><Link to="/admin/login" className="hover:text-indigo-400 transition-colors">Admin Gateway</Link></li>
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-white font-black text-[10px] uppercase tracking-[0.3em] mb-8">Inquiry</h3>
-              <p className="text-xs mb-6 font-medium leading-relaxed">Direct support available for all premium projects.</p>
-              <Link to="/order" className="bg-indigo-600 text-white font-black py-3.5 px-6 rounded-xl text-[10px] uppercase tracking-[0.2em] hover:bg-indigo-700 transition-all block text-center">Contact Now</Link>
-            </div>
-          </div>
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-12 pt-8 border-t border-slate-900 flex justify-between items-center text-[10px] font-bold uppercase tracking-[0.4em] text-slate-700">
-            <p>© {new Date().getFullYear()} DESIGNHUB PRO.</p>
-          </div>
+      {!isAtAdmin && (
+        <footer className="bg-slate-950 text-slate-400 py-12 text-center text-xs font-bold uppercase tracking-widest border-t border-slate-900">
+          <p>© {new Date().getFullYear()} DESIGNHUB PRO. ALL RIGHTS RESERVED.</p>
         </footer>
       )}
     </div>

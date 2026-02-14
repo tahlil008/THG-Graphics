@@ -1,18 +1,20 @@
 
 /**
- * গুরুত্বপূর্ন নির্দেশাবলী:
- * ১. supabase.com এ গিয়ে একটি ফ্রী একাউন্ট খুলুন।
- * ২. একটি নতুন প্রজেক্ট তৈরি করুন।
- * ৩. Project Settings > API থেকে 'Project URL' এবং 'anon key' সংগ্রহ করুন।
- * ৪. নিচের ভেরিয়েবলগুলোতে সেগুলো বসিয়ে দিন।
- * ৫. Supabase এর SQL Editor এ নিচের কোডটি রান করুন টেবিল তৈরি করার জন্য।
+ * 🛠️ HOW TO SYNC DATA ACROSS DEVICES:
+ * 
+ * 1. Go to https://supabase.com and create a FREE account.
+ * 2. Create a "New Project".
+ * 3. Go to "Project Settings" (Gear icon) -> "API".
+ * 4. Copy "Project URL" and "anon public" key.
+ * 5. Paste them below.
+ * 6. Go to "SQL Editor" in Supabase and run the SQL code below.
  */
 
-export const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL'; // এখানে আপনার আসল URL দিন
-export const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // এখানে আপনার আসল Key দিন
+export const SUPABASE_URL = 'YOUR_SUPABASE_PROJECT_URL'; // Paste URL here
+export const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // Paste Anon Key here
 
 /* 
-SUPABASE SQL EDITOR এ এই কোডটি কপি করে রান করুন:
+COPY AND RUN THIS IN SUPABASE SQL EDITOR:
 
 CREATE TABLE orders (
   id TEXT PRIMARY KEY,
@@ -32,4 +34,7 @@ CREATE POLICY "Allow public insert" ON orders FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public select" ON orders FOR SELECT USING (true);
 CREATE POLICY "Allow public update" ON orders FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete" ON orders FOR DELETE USING (true);
+
+-- Enable Realtime for the orders table
+alter publication supabase_realtime add table orders;
 */
